@@ -27,11 +27,7 @@ final class GeoIPRequest implements LoggerAwareInterface
 		?LoggerInterface $logger = null
 	)
 	{
-		if (isset($logger)) {
-			$this->setLogger($logger);
-		} else {
-			$this->setLogger(new NullLogger());
-		}
+		$this->setLogger($logger ?? new NullLogger());
 
 		$this->setkey($key);
 		$this->setIP($ip);
@@ -112,7 +108,7 @@ final class GeoIPRequest implements LoggerAwareInterface
 			if ($result = curl_exec($ch) and $data = json_decode($result)) {
 				curl_close($ch);
 
-				return new GeoIPResponse($data);
+				return new GeoIPResponse($data, $this->logger);
 			} else {
 				curl_close($ch);
 

@@ -5,9 +5,14 @@ use \shgysk8zer0\PHPAPI\{NullLogger};
 use \shgysk8zer0\PHPAPI\Interfaces\{LoggerAwareInterface, LoggerInterface};
 use \shgysk8zer0\PHPAPI\Traits\{LoggerAwareTrait};
 use \shgysk8zer0\PHPAPI\Abstracts\{HTTPStatusCodes as HTTP};
-use \shgysk8zer0\PHPSchema\{PostalAddress, GeoCoordinates};
-use \shgysk8zer0\PHPSchema\Interfaces\{PostalAddressInterface, GeoCoordinatesInterface};
+use \shgysk8zer0\PHPSchema\{PostalAddress, GeoCoordinates, Language};
+use \shgysk8zer0\PHPSchema\Interfaces\{
+	PostalAddressInterface,
+	GeoCoordinatesInterface,
+	LanguageInterface,
+};
 use \JsonSerializable;
+use \RuntimeException;
 use \Throwable;
 
 final class GeoIPResponse implements JsonSerializable, LoggerAwareInterface
@@ -20,18 +25,16 @@ final class GeoIPResponse implements JsonSerializable, LoggerAwareInterface
 
 	private $_geo = null;
 
+	private $_languages = [];
+
 	private $_error = null;
 
-	final public function __construct(object $data, ?LoggerInterface $logger = null)
+	final public function __construct(?object $data, ?LoggerInterface $logger = null)
 	{
-		if (isset($logger)) {
-			$this->setLogger($logger);
-		} else {
-			$this->setLogger(new NullLogger());
-		}
+		$this->setLogger($logger ?? new NullLogger());
 
-		$this->_address = new PostalAddress();
-		$this->_geo     = new GeoCoordinates();
+		$this->_address  = new PostalAddress();
+		$this->_geo      = new GeoCoordinates();
 
 		if (isset($data, $data->success, $data->error) and $data->success === false) {
 			$this->_error = new GeoIPException($data->error->info, $data->error->code, $data->error->type);
@@ -43,21 +46,23 @@ final class GeoIPResponse implements JsonSerializable, LoggerAwareInterface
 	final public function __debugInfo(): array
 	{
 		return [
-			'address' => $this->getAddress(),
-			'geo'     => $this->getGeo(),
-			'ip'      => $this->getIP(),
-			'error'   => $this->getError(),
+			'ip'        => $this->getIP(),
+			'address'   => $this->getAddress(),
+			'geo'       => $this->getGeo(),
+			'languages' => $this->getLanguages(),
+			'error'     => $this->getError(),
 		];
 	}
 
 	final public function jsonSerialize(): array
 	{
 		return [
-			'status'  => $this->getStatus(),
-			'address' => $this->getAddress(),
-			'geo'     => $this->getGeo(),
-			'ip'      => $this->getIP(),
-			'error'   => $this->getError(),
+			'status'    => $this->getStatus(),
+			'ip'        => $this->getIP(),
+			'address'   => $this->getAddress(),
+			'geo'       => $this->getGeo(),
+			'languages' => $this->getLanguages(),
+			'error'     => $this->getError(),
 		];
 	}
 
@@ -86,6 +91,16 @@ final class GeoIPResponse implements JsonSerializable, LoggerAwareInterface
 		return $this->_error;
 	}
 
+	final public function getLanguage():? LanguageInterface
+	{
+		return count($this->_languages) === 0 ? null : $this->_languages[0];
+	}
+
+	final public function getLanguages(): iterable
+	{
+		return $this->_languages;
+	}
+
 	final public function getStatus(): int
 	{
 		if ($this->getIP() !== '') {
@@ -99,14 +114,28 @@ final class GeoIPResponse implements JsonSerializable, LoggerAwareInterface
 
 	final protected function _setData(object $data): void
 	{
-		$this->_ip = $data->ip;
+		if (isset($data->ip, $data->location) and filter_var($data->ip, FILTER_VALIDATE_IP)) {
+			$this->_ip = $data->ip;
 
-		$this->_address->setAddressLocality($data->city);
-		$this->_address->setAddressRegion($data->region_code);
-		$this->_address->setPostalCode($data->zip);
-		$this->_address->setAddressCountry($data->country_code);
+			$this->_address->setName($data->city);
+			$this->_address->setAddressLocality($data->city);
+			$this->_address->setAddressRegion($data->region_name);
+			$this->_address->setPostalCode($data->zip);
+			$this->_address->setAddressCountry($data->country_code);
 
-		$this->_geo->setLatitude($data->latitude);
-		$this->_geo->setLongitude($data->longitude);
+			$this->_geo->setName($data->city);
+			$this->_geo->setLatitude($data->latitude);
+			$this->_geo->setLongitude($data->longitude);
+
+			if (is_array($data->location->languages)) {
+				$this->_languages = array_map(function(object $lang): LanguageInterface
+				{
+					$language = new Language();
+					$language->setName($lang->name);
+					$language->setAlternateName($lang->code);
+					return $language;
+				}, $data->location->languages);
+			}
+		}
 	}
 }
